@@ -27,6 +27,19 @@ from django.utils.formats import localize
 from reversion.models import Revision, Version, has_int_pk
 from reversion.revisions import default_revision_manager, RegistrationError
 
+if hasattr(transaction, 'atomic'):
+    atomic = transaction.atomic
+else:
+    from reversion.django_1_7_atomic import atomic
+
+
+def model_name(model):
+    opts = model._meta
+    try:
+        return opts.model_name
+    except AttributeError:
+        return model.__name__.lower()
+
 
 class VersionAdmin(admin.ModelAdmin):
     
@@ -127,7 +140,9 @@ class VersionAdmin(admin.ModelAdmin):
         urls = super(VersionAdmin, self).get_urls()
         admin_site = self.admin_site
         opts = self.model._meta
-        info = opts.app_label, opts.model_name,
+        info = opts.app_label, (
+            model_name(self.model)
+        ),
         reversion_urls = patterns("",
                                   url("^recover/$", admin_site.admin_view(self.recoverlist_view), name='%s_%s_recoverlist' % info),
                                   url("^recover/([^/]+)/$", admin_site.admin_view(self.recover_view), name='%s_%s_recover' % info),
@@ -187,7 +202,7 @@ class VersionAdmin(admin.ModelAdmin):
             "module_name": capfirst(opts.verbose_name),
             "title": _("Recover deleted %(name)s") % {"name": force_text(opts.verbose_name_plural)},
             "deleted": deleted,
-            "changelist_url": reverse("%s:%s_%s_changelist" % (self.admin_site.name, opts.app_label, opts.model_name)),
+            "changelist_url": reverse("%s:%s_%s_changelist" % (self.admin_site.name, opts.app_label, model_name(model))),
         }
         extra_context = extra_context or {}
         context.update(extra_context)
@@ -368,10 +383,10 @@ class VersionAdmin(admin.ModelAdmin):
                         "content_type_id": ContentType.objects.get_for_model(self.model).id,
                         "save_as": False,
                         "save_on_top": self.save_on_top,
-                        "changelist_url": reverse("%s:%s_%s_changelist" % (self.admin_site.name, opts.app_label, opts.model_name)),
-                        "change_url": reverse("%s:%s_%s_change" % (self.admin_site.name, opts.app_label, opts.model_name), args=(quote(obj.pk),)),
-                        "history_url": reverse("%s:%s_%s_history" % (self.admin_site.name, opts.app_label, opts.model_name), args=(quote(obj.pk),)),
-                        "recoverlist_url": reverse("%s:%s_%s_recoverlist" % (self.admin_site.name, opts.app_label, opts.model_name))})
+                        "changelist_url": reverse("%s:%s_%s_changelist" % (self.admin_site.name, opts.app_label, model_name(model))),
+                        "change_url": reverse("%s:%s_%s_change" % (self.admin_site.name, opts.app_label, model_name(model)), args=(quote(obj.pk),)),
+                        "history_url": reverse("%s:%s_%s_history" % (self.admin_site.name, opts.app_label, model_name(model)), args=(quote(obj.pk),)),
+                        "recoverlist_url": reverse("%s:%s_%s_recoverlist" % (self.admin_site.name, opts.app_label, model_name(model)))})
         # Render the form.
         if revert:
             form_template = self.revision_form_template or self._get_template_list("revision_form.html")
@@ -381,7 +396,7 @@ class VersionAdmin(admin.ModelAdmin):
             assert False
         return render_to_response(form_template, context, template.RequestContext(request))
     
-    @transaction.atomic
+    @atomic
     def recover_view(self, request, version_id, extra_context=None):
         """Displays a form that can recover a deleted model."""
         # check if user has change or add permissions for model
@@ -393,7 +408,7 @@ class VersionAdmin(admin.ModelAdmin):
         context.update(extra_context or {})
         return self.render_revision_form(request, obj, version, context, recover=True)
         
-    @transaction.atomic
+    @atomic
     def revision_view(self, request, object_id, version_id, extra_context=None):
         """Displays the contents of the given revision."""
         # check if user has change or add permissions for model
@@ -409,9 +424,10 @@ class VersionAdmin(admin.ModelAdmin):
     
     def changelist_view(self, request, extra_context=None):
         """Renders the change view."""
-        opts = self.model._meta
-        context = {"recoverlist_url": reverse("%s:%s_%s_recoverlist" % (self.admin_site.name, opts.app_label, opts.model_name)),
-                   "add_url": reverse("%s:%s_%s_add" % (self.admin_site.name, opts.app_label, opts.model_name)),}
+        model = self.model
+        opts = model._meta
+        context = {"recoverlist_url": reverse("%s:%s_%s_recoverlist" % (self.admin_site.name, opts.app_label, model_name(model))),
+                   "add_url": reverse("%s:%s_%s_add" % (self.admin_site.name, opts.app_label, model_name(model))),}
         context.update(extra_context or {})
         return super(VersionAdmin, self).changelist_view(request, context)
     
@@ -425,7 +441,7 @@ class VersionAdmin(admin.ModelAdmin):
         action_list = [
             {
                 "revision": version.revision,
-                "url": reverse("%s:%s_%s_revision" % (self.admin_site.name, opts.app_label, opts.model_name), args=(quote(version.object_id), version.id)),
+                "url": reverse("%s:%s_%s_revision" % (self.admin_site.name, opts.app_label, model_name(self.model)), args=(quote(version.object_id), version.id)),
             }
             for version
             in self._order_version_queryset(self.revision_manager.get_for_object_reference(

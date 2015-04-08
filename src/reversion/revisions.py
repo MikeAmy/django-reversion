@@ -21,6 +21,12 @@ from django.utils.encoding import force_text
 from reversion.models import Revision, Version, has_int_pk, pre_revision_commit, post_revision_commit
 
 
+if hasattr(transaction, 'atomic'):
+    atomic = transaction.atomic
+else:
+    from reversion.django_1_7_atomic import atomic
+
+
 class VersionAdapter(object):
 
     """Adapter class for serializing a registered model."""
@@ -347,7 +353,7 @@ class RevisionManager(object):
         meta = model._meta
         return (
             meta.app_label,
-            meta.model_name,
+            meta.model_name if hasattr(meta, 'model_name') else model.__name__.lower(),
         )
 
     def is_registered(self, model):
@@ -485,7 +491,7 @@ class RevisionManager(object):
                     versions = new_versions,
                 )
                 # Save the revision.
-                with transaction.atomic(using=db):
+                with atomic(using=db):
                     revision.save(using=db)
                     # Save version models.
                     for version in new_versions:
