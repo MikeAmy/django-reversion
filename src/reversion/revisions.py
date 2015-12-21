@@ -508,7 +508,7 @@ class RevisionManager(object):
                     # Save version models.
                     for version in new_versions:
                         version.revision = revision
-                        version.save()
+                    Version.objects.bulk_create(new_versions)
                     # Save the meta information.
                     for cls, kwargs in meta:
                         cls._default_manager.db_manager(db).create(revision=revision, **kwargs)
